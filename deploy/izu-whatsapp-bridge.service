@@ -1,0 +1,20 @@
+# systemd --user unit. Install:
+#   cp deploy/izu-whatsapp-bridge.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now izu-whatsapp-bridge
+[Unit]
+Description=Claude Code WhatsApp gateway (Baileys + Claude Agent SDK)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/izu-whatsapp-bridge
+ExecStart=%h/izu-whatsapp-bridge/.venv/bin/python3 %h/izu-whatsapp-bridge/bridge.py
+EnvironmentFile=%h/izu-whatsapp-bridge/.env
+Restart=on-failure
+RestartSec=10
+MemoryHigh=2G
+MemoryMax=3G
+
+[Install]
+WantedBy=default.target
