@@ -125,6 +125,11 @@ class CodexClient:
         if self.home.resolve() == self.cwd.resolve() or self.cwd.resolve() in self.home.resolve().parents:
             raise ValueError("CODEX_HOME must not be inside the lane's writable folder")
         self._refresh()
+        # Pictures already on disk belong to earlier turns (or an earlier run of
+        # the bridge): never send them again, whatever their timestamps say.
+        root = self.home / "generated_images"
+        if root.is_dir():
+            self._sent_files.update(str(p) for p in root.rglob("*.png"))
 
     async def disconnect(self) -> None:
         self._closed = True
@@ -175,6 +180,7 @@ class CodexClient:
             self._emit(SystemMessage(subtype="init", data={"engine": "codex"}))
             self._emit(UserMessage(content=text, uuid=uid or None))
             started = time.monotonic()
+            started_wall = time.time()  # file mtimes are wall-clock
             if self.prompt_provider is not None:
                 try:
                     sp = await self.prompt_provider()
@@ -208,7 +214,7 @@ class CodexClient:
                     final = final or f"⚠️ {ev.get('message') or ev}"
             # Codex writes generated pictures under CODEX_HOME/generated_images and
             # the --json stream does not always name them: send whatever is new.
-            for p in self._new_images(started):
+            for p in self._new_images(started_wall):
                 await self._send_file(p)
             # Local image links in the text are useless on a phone: send the file
             # (if not already sent) and drop the link.
@@ -224,6 +230,8 @@ class CodexClient:
                                      num_turns=1, session_id=self.thread_id or "", result=final))
 
     def _new_images(self, since: float) -> list[str]:
+        """PNGs Codex wrote during this turn. `since` is wall-clock (time.time()):
+        comparing mtimes with time.monotonic() made every old picture look new."""
         root = self.home / "generated_images"
         if not root.is_dir():
             return []

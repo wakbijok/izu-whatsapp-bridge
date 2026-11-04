@@ -230,3 +230,32 @@ def test_prompt_provider_rewrites_instructions_each_turn(tmp_path):
 
     asyncio.run(main())
     assert seen == ["persona v1 (Izu)", "persona v2 (Azu)"]
+
+
+def test_old_pictures_are_never_resent_after_restart(tmp_path):
+    """Regression (04-11-2026): after a reboot every picture on disk was re-sent,
+    because mtimes were compared with time.monotonic()."""
+    import os, time
+    work, home = tmp_path / "work", tmp_path / "home"
+    gi = home / "generated_images" / "x"
+    gi.mkdir(parents=True)
+    old = gi / "old.png"
+    old.write_bytes(b"\x89PNG")
+    os.utime(old, (time.time() - 3600, time.time() - 3600))
+    sent = []
+
+    async def on_file(p):
+        sent.append(p)
+
+    async def runner(args, cwd, env, prompt):
+        (gi / "new.png").write_bytes(b"\x89PNG")  # made during this turn
+        return _events()
+
+    async def main():
+        cl = CodexClient(cwd=work, home=home, system_prompt="", model="m", effort="low", mcp_servers={},
+                         docs_env=None, thread_id="t1", runner=runner, on_file=on_file)
+        await cl.connect()
+        await cl._turn("hi", "", [])
+
+    asyncio.run(main())
+    assert [os.path.basename(p) for p in sent] == ["new.png"]
